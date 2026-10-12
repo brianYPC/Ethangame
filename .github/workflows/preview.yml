@@ -1,0 +1,80 @@
+name: Temporary browser preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci && npm test && npm run build
+      - name: Start browser preview
+        id: tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-linux-amd64 -o /tmp/cloudflared
+          printf '%s\n' 'd33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db  /tmp/cloudflared' | sha256sum --check
+          chmod +x /tmp/cloudflared
+          python3 -m http.server 8080 --bind 127.0.0.1 --directory dist > /tmp/game-server.log 2>&1 &
+          /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 --protocol http2 > /tmp/game-tunnel.log 2>&1 &
+          echo "$!" > /tmp/game-tunnel.pid
+          python3 - <<'PY'
+          import os, re, time, urllib.request
+          from pathlib import Path
+          for attempt in range(36):
+              log=Path('/tmp/game-tunnel.log').read_text()
+              match=re.search(r'https://[a-z0-9-]+\.trycloudflare\.com',log)
+              if match:
+                  url=match.group(0)
+                  try:
+                      with urllib.request.urlopen(url,timeout=10) as response:
+                          if 'Demolition Lab' in response.read().decode():
+                              with open(os.environ['GITHUB_OUTPUT'],'a') as out: out.write(f'url={url}\n')
+                              print('Verified public game URL:',url)
+                              break
+                  except Exception: pass
+              time.sleep(5)
+          else:
+              print(Path('/tmp/game-tunnel.log').read_text())
+              raise SystemExit('Public preview did not become ready')
+          PY
+      - name: Register public preview URL
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              ...context.repo, ref: context.sha,
+              environment: 'browser-preview',
+              description: 'Temporary 30-minute browser playtest',
+              auto_merge: false, required_contexts: [],
+              transient_environment: true, production_environment: false
+            });
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo, deployment_id: deployment.data.id,
+              state: 'success', environment: 'browser-preview',
+              environment_url: process.env.PREVIEW_URL,
+              description: 'Game ready for a 30-minute playtest'
+            });
+            await core.summary.addHeading('Play the demolition game')
+              .addLink('Open game', process.env.PREVIEW_URL)
+              .addRaw('\nTemporary preview expires when this job ends.\n').write();
+      - name: Keep playtest available for 30 minutes
+        shell: bash
+        run: |
+          for minute in $(seq 1 60); do
+            kill -0 "$(cat /tmp/game-tunnel.pid)"
+            sleep 30
+          done
