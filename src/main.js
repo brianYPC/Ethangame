@@ -2,7 +2,21 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import './style.css';
 import {CELL,key,strength,supportedKeys,blastDamage} from './physics.js';
+import {SoundEffects} from './audio.js';
+import {Operator} from './character.js';
+import {clearBody} from './movement.js';
+import {NuclearBlast} from './nuclear.js';
 const $=id=>document.getElementById(id),canvas=$('world');
+const sound=new SoundEffects(),keys=new Set();
+let follow=false,jumpQueued=false;
+const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+document.addEventListener('pointerdown',()=>sound.unlock(),{capture:true});
+document.addEventListener('keydown',()=>sound.unlock(),{capture:true});
+function soundLabel(){$('sound').textContent=sound.muted?'Sound: Off':'Sound: On';$('sound').setAttribute('aria-pressed',String(sound.muted));}
+$('sound').onclick=()=>{sound.mute(!sound.muted);soundLabel();};
+$('volume').value=Math.round(sound.volume*100);
+$('volume').oninput=e=>sound.setVolume(Number(e.target.value)/100);
+soundLabel();
 let renderer;
 try{renderer=new THREE.WebGLRenderer({canvas,antialias:true});}catch{$('message').textContent='A WebGL-capable browser is required. Enable hardware acceleration.';throw new Error('WebGL unavailable');}
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;
@@ -29,6 +43,7 @@ const sceneryMat=new THREE.MeshStandardMaterial({color:0x66727a,roughness:.9});
 for(let i=0;i<16;i++){const h=4+(i*7%13),m=new THREE.Mesh(new THREE.BoxGeometry(8,h,10),sceneryMat);m.position.set((i-8)*13,h/2,-65-(i%3)*8);m.receiveShadow=true;scene.add(m);}
 const blockGeo=new THREE.BoxGeometry(1.96,1.96,1.96),rubbleGeo=new THREE.BoxGeometry(1,1,1);
 const blocks=new Map(),debris=[],effects=[];
+const operator=new Operator(scene),nuclearBlast=new NuclearBlast(scene);
 let tool='build',floor=0,broken=0,nukeCooldown=0,shake=0,hover=null;
 const ghost=new THREE.Mesh(blockGeo,new THREE.MeshBasicMaterial({color:0x9bdda8,transparent:true,opacity:.32,depthWrite:false}));const edges=new THREE.LineSegments(new THREE.EdgesGeometry(blockGeo),new THREE.LineBasicMaterial({color:0xc9ffe0}));ghost.add(edges);scene.add(ghost);
 const ray=new THREE.Raycaster(),pointer=new THREE.Vector2(),point=new THREE.Vector3();
@@ -51,24 +66,26 @@ function fragment(b,origin,power,falling=false){
  }
 }
 function remove(b,origin,power,falling=false){blocks.delete(key(b.x,b.y,b.z));scene.remove(b.m);fragment(b,origin,power,falling);broken++;}
-function collapse(){const supported=supportedKeys([...blocks.values()]);for(const [k,b] of blocks)if(!supported.has(k))remove(b,b.m.position.clone().add(new THREE.Vector3(0,-2,0)),80,true);}
+function collapse(){const supported=supportedKeys([...blocks.values()]);let count=0;for(const [k,b] of blocks)if(!supported.has(k)){remove(b,b.m.position.clone().add(new THREE.Vector3(0,-2,0)),80,true);count++;}if(count)sound.play('collapse');}
 const explosionGeo=new THREE.SphereGeometry(1,20,12),ringGeo=new THREE.TorusGeometry(1,.035,8,64);
 function effect(geo,pos,color,size,duration,kind){const mat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.8,depthWrite:false});const m=new THREE.Mesh(geo,mat);m.position.copy(pos);scene.add(m);effects.push({m,age:0,duration,size,kind});return m;}
 function blast(pos,nuclear){const radius=nuclear?31:4.5,power=nuclear?2000:180;
- for(const b of [...blocks.values()]){const damage=blastDamage(b.m.position.distanceTo(pos),radius,power);b.hp-=damage;if(b.hp<=0)remove(b,pos,power);}
+ let glassBroken=false;
+ for(const b of [...blocks.values()]){const damage=blastDamage(b.m.position.distanceTo(pos),radius,power);b.hp-=damage;if(b.hp<=0){if(b.type==='glass')glassBroken=true;remove(b,pos,power);}}
  collapse();stats();shake=nuclear?1.2:.18;
- effect(explosionGeo,pos,0xffc266,nuclear?16:3,nuclear?2:.4,'fire');
- const ring=effect(ringGeo,new THREE.Vector3(pos.x,.15,pos.z),0xffde9e,nuclear?48:7,nuclear?2.7:.6,'ring');ring.rotation.x=Math.PI/2;
+ sound.play(nuclear?'nuclear':'blaster');if(glassBroken&&!nuclear)sound.play('glass');
  if(nuclear){
-  for(let i=0;i<18;i++){const a=i/18*Math.PI*2;effect(explosionGeo,new THREE.Vector3(pos.x+Math.cos(a)*6,pos.y+12+Math.random()*3,pos.z+Math.sin(a)*6),0x55514a,6+Math.random()*3,9,'smoke');}
-  for(let i=0;i<7;i++)effect(explosionGeo,new THREE.Vector3(pos.x,pos.y+i*2,pos.z),0x6a6255,3,8,'smoke');
-  nukeCooldown=5;message('Nuclear blast detonated. Unsupported structures are collapsing.');
- }else message('Blaster impact. Break the foundations to bring a building down.');
+  nuclearBlast.detonate(pos);nukeCooldown=15;message('Nuclear blast detonated. Watch the shockwave and rising cloud.');
+ }else {
+  effect(explosionGeo,pos,0xffc266,3,.4,'fire');
+  const ring=effect(ringGeo,new THREE.Vector3(pos.x,.15,pos.z),0xffde9e,7,.6,'ring');ring.rotation.x=Math.PI/2;
+  message('Blaster impact. Break the foundations to bring a building down.');
+ }
 }
 function aim(e){const rect=canvas.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);}
 function pickBuild(e){aim(e);const plane=new THREE.Plane(new THREE.Vector3(0,1,0),-(floor*CELL+.02));if(!ray.ray.intersectPlane(plane,point))return null;const x=Math.round(point.x/CELL),z=Math.round(point.z/CELL);return Math.abs(x)<=24&&Math.abs(z)<=24?{x,y:floor,z}:null;}
 let down=null;
-canvas.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY,time:performance.now()};});
+canvas.addEventListener('pointerdown',e=>{canvas.focus({preventScroll:true});down={x:e.clientX,y:e.clientY,time:performance.now()};});
 canvas.addEventListener('pointermove',e=>{hover=pickBuild(e);});
 canvas.addEventListener('pointerleave',()=>{hover=null;});
 canvas.addEventListener('pointerup',e=>{
@@ -76,35 +93,47 @@ canvas.addEventListener('pointerup',e=>{
  if(tool==='build'){
   const p=pickBuild(e);if(!p)return;const neighbors=[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
   if(p.y>0&&!neighbors.some(([x,y,z])=>blocks.has(key(p.x+x,p.y+y,p.z+z)))){message('Upper blocks need support. Build beside or above an existing section.');return;}
-  if(addBlock(p.x,p.y,p.z,$('material').value)){stats();message('Section placed. Change height to build another floor.');}else message('That cell is occupied or the site is full.');
+  const human=operator.group.position;if(!clearBody(human.x,human.y,human.z,[p])){message('Step away before building in your character’s space.');return;}
+  if(addBlock(p.x,p.y,p.z,$('material').value)){sound.play('build',$('material').value);stats();message('Section placed. Change height to build another floor.');}else message('That cell is occupied or the site is full.');
  }else{
   aim(e);const hits=ray.intersectObjects([...blocks.values()].map(b=>b.m));let hit=hits[0]?.point;
   if(!hit)hit=ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),new THREE.Vector3());
   if(!hit||Math.abs(hit.x)>60||Math.abs(hit.z)>60)return;
   if(tool==='nuke'&&nukeCooldown>0){message(`Nuclear blast recharging: ${Math.ceil(nukeCooldown)} seconds.`);return;}
   if(tool==='blaster'){
-   const start=camera.position.clone().add(new THREE.Vector3(1,-1,-1)),dir=hit.clone().sub(start),beam=new THREE.Mesh(new THREE.CylinderGeometry(.035,.035,dir.length(),8),new THREE.MeshBasicMaterial({color:0xff5840,transparent:true}));beam.position.copy(start).add(hit).multiplyScalar(.5);beam.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());scene.add(beam);effects.push({m:beam,age:0,duration:.15,size:1,kind:'beam'});
+   operator.aim(hit);
+   const start=operator.muzzlePosition(),dir=hit.clone().sub(start),beam=new THREE.Mesh(new THREE.CylinderGeometry(.035,.035,dir.length(),8),new THREE.MeshBasicMaterial({color:0xff5840,transparent:true}));beam.position.copy(start).add(hit).multiplyScalar(.5);beam.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());scene.add(beam);effects.push({m:beam,age:0,duration:.15,size:1,kind:'beam'});
+   effect(explosionGeo,start,0xffd697,.22,.12,'fire');
   }
   blast(hit.clone(),tool==='nuke');
  }
 });
-function selectTool(t){tool=t;document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('selected',b.dataset.tool===t));ghost.visible=t==='build';message(t==='build'?'Click the grid to place a section. Use the height slider for upper floors.':t==='blaster'?'Click a building to fire the blaster. Drag to inspect another side.':'Click a target to detonate a fictional nuclear blast.');}
+function selectTool(t){tool=t;operator.setTool(t);document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('selected',b.dataset.tool===t));ghost.visible=t==='build';message(t==='build'?'Click the grid to build. WASD moves Ethan; Space jumps.':t==='blaster'?'Click a building to fire Ethan’s blaster. WASD moves; Space jumps.':'Click a target to detonate a fictional nuclear blast.');}
 for(const b of document.querySelectorAll('[data-tool]'))b.onclick=()=>selectTool(b.dataset.tool);
 function setFloor(n){floor=Math.max(0,Math.min(11,n));$('height').value=floor;$('height-label').textContent=floor+1;hover=null;}
-$('height').oninput=e=>setFloor(Number(e.target.value));$('tower').onclick=tower;
-function reset(){for(const b of blocks.values())scene.remove(b.m);blocks.clear();for(const d of debris)scene.remove(d.m);debris.length=0;for(const e of effects){scene.remove(e.m);e.m.material.dispose();}effects.length=0;broken=0;nukeCooldown=0;shake=0;setFloor(0);tower();selectTool('build');}
-$('reset').onclick=reset;
-addEventListener('keydown',e=>{if(['INPUT','SELECT'].includes(document.activeElement.tagName))return;const k=e.key.toLowerCase();if(['1','2','3'].includes(k))selectTool(['build','blaster','nuke'][Number(k)-1]);if(k==='q')setFloor(floor-1);if(k==='e')setFloor(floor+1);});
+$('height').oninput=e=>setFloor(Number(e.target.value));$('tower').onclick=()=>{tower();sound.play('build');};
+function reset(){for(const b of blocks.values())scene.remove(b.m);blocks.clear();for(const d of debris)scene.remove(d.m);debris.length=0;for(const e of effects){scene.remove(e.m);e.m.material.dispose();if(e.kind==='beam')e.m.geometry.dispose();}effects.length=0;broken=0;nukeCooldown=0;shake=0;keys.clear();jumpQueued=false;operator.reset();nuclearBlast.clear();setFloor(0);tower();selectTool('build');}
+$('reset').onclick=()=>{sound.stop();reset();};
+function followCharacter(value){follow=value;$('follow').textContent=follow?'Overview camera':'Follow Ethan';$('follow').setAttribute('aria-pressed',String(follow));if(follow){controls.target.copy(operator.group.position).add(new THREE.Vector3(0,1,0));camera.position.copy(controls.target).add(new THREE.Vector3(5,3.5,7));controls.minDistance=3;}else{controls.target.set(0,7,0);camera.position.set(30,24,35);controls.minDistance=8;}controls.update();}
+$('follow').onclick=()=>followCharacter(!follow);
+addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return;const k=e.key.toLowerCase();if(k===' '&&document.activeElement.tagName==='BUTTON')return;if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();keys.add(k);if(k===' '&&!e.repeat)jumpQueued=true;if(['1','2','3'].includes(k))selectTool(['build','blaster','nuke'][Number(k)-1]);if(k==='q')setFloor(floor-1);if(k==='e')setFloor(floor+1);if(k==='c'&&!e.repeat)followCharacter(!follow);});
+addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+addEventListener('blur',()=>{keys.clear();jumpQueued=false;});
+for(const button of document.querySelectorAll('[data-move]')){button.onpointerdown=e=>{e.preventDefault();button.setPointerCapture(e.pointerId);keys.add(button.dataset.move);if(button.dataset.move===' ')jumpQueued=true;};button.onpointerup=button.onpointercancel=()=>keys.delete(button.dataset.move);}
 function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}addEventListener('resize',resize);resize();reset();
 const clock=new THREE.Clock();
 function frame(){requestAnimationFrame(frame);const dt=Math.min(clock.getDelta(),.04);nukeCooldown=Math.max(0,nukeCooldown-dt);
+ operator.update(dt,keys,camera,blocks,sound,jumpQueued);jumpQueued=false;
+ if(follow){const target=operator.group.position.clone().add(new THREE.Vector3(0,1,0));camera.position.add(target.clone().sub(controls.target));controls.target.copy(target);}
+ nuclearBlast.update(dt);
+ $('flash').style.opacity=String(nuclearBlast.active?Math.exp(-nuclearBlast.age*9)*(reducedMotion?.2:.8):0);
  ghost.visible=tool==='build'&&!!hover;if(hover){ghost.position.set(hover.x*CELL,hover.y*CELL+1,hover.z*CELL);ghost.material.color.set(blocks.has(key(hover.x,hover.y,hover.z))?0xff7878:0x9bdda8);}
  for(let i=debris.length-1;i>=0;i--){const d=debris[i];d.life-=dt;d.v.y-=18*dt;d.m.position.addScaledVector(d.v,dt);d.m.rotation.x+=d.spin.x*dt;d.m.rotation.y+=d.spin.y*dt;d.m.rotation.z+=d.spin.z*dt;
-  if(d.m.position.y<d.radius){d.m.position.y=d.radius;d.v.y=Math.abs(d.v.y)*.25;d.v.x*=.85;d.v.z*=.85;d.spin.multiplyScalar(.8);if(Math.abs(d.v.y)<.6)d.v.y=0;}
+  if(d.m.position.y<d.radius){if(d.v.y < -4)sound.play('impact');d.m.position.y=d.radius;d.v.y=Math.abs(d.v.y)*.25;d.v.x*=.85;d.v.z*=.85;d.spin.multiplyScalar(.8);if(Math.abs(d.v.y)<.6)d.v.y=0;}
   if(d.life<0){scene.remove(d.m);debris.splice(i,1);}
  }
  for(let i=effects.length-1;i>=0;i--){const e=effects[i];e.age+=dt;const f=e.age/e.duration;e.m.material.opacity=(1-f)*(e.kind==='smoke'?.5:.9);if(e.kind!=='beam')e.m.scale.setScalar(e.size*(e.kind==='smoke'?.7+f*.6:.15+f));if(e.kind==='smoke')e.m.position.y+=dt*1.4;if(f>=1){scene.remove(e.m);e.m.material.dispose();if(e.kind==='beam')e.m.geometry.dispose();effects.splice(i,1);}}
- controls.update();const offset=new THREE.Vector3();if(shake>0){shake=Math.max(0,shake-dt);offset.set((Math.random()-.5)*shake,(Math.random()-.5)*shake,0);camera.position.add(offset);}renderer.render(scene,camera);camera.position.sub(offset);
+ controls.update();const offset=new THREE.Vector3();if(shake>0){shake=Math.max(0,shake-dt);if(!reducedMotion){offset.set((Math.random()-.5)*shake,(Math.random()-.5)*shake,0);camera.position.add(offset);}}renderer.render(scene,camera);camera.position.sub(offset);
 }frame();
 // Read-only diagnostic state for automated smoke checks.
-window.demolitionState=()=>({blocks:blocks.size,debris:debris.length,destroyed:broken,tool,effects:effects.length});
+window.demolitionState=()=>({blocks:blocks.size,debris:debris.length,destroyed:broken,tool,effects:effects.length,character:operator.state(),follow,audio:sound.state(),nuclear:nuclearBlast.state()});
