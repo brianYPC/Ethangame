@@ -31,3 +31,7 @@ A WebGL-capable browser is required. Dependencies and textures are local; no ext
 The GitHub Pages workflow is prepared to publish the production build from `main` once Pages is enabled in the repository settings with GitHub Actions as the source. The deployment workflow runs the tests, builds the site, and uploads it to Pages. Relative asset paths allow the game to run under a repository URL. Future pushes to `main` automatically publish updates.
 
 For a temporary 30-minute public playtest, run the Temporary browser preview workflow in GitHub Actions. Its deployment status contains the current browser URL. The Verify browser preview workflow checks the public game in Chrome. Old preview URLs expire and should not be reused.
+
+## Stick people and ragdolls
+
+Four colorful stick figures start around the tower. Add person spawns another near Ethan; Place person (key 4) lets you click open ground or a rooftop to position one. The yard supports up to 24 people. Blaster impacts and nuclear blasts launch nearby figures into articulated ragdolls. Their connected arms, legs, torso, and head tumble, bounce off buildings, and settle on the ground. Stand everyone up restores the crowd; Reset site restores the original four. Rooftop figures also fall when their supports are destroyed.

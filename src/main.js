@@ -6,6 +6,7 @@ import {SoundEffects} from './audio.js';
 import {Operator} from './character.js';
 import {clearBody} from './movement.js';
 import {NuclearBlast} from './nuclear.js';
+import {People} from './people.js';
 const $=id=>document.getElementById(id),canvas=$('world');
 const sound=new SoundEffects(),keys=new Set();
 let follow=false,jumpQueued=false;
@@ -44,11 +45,12 @@ for(let i=0;i<16;i++){const h=4+(i*7%13),m=new THREE.Mesh(new THREE.BoxGeometry(
 const blockGeo=new THREE.BoxGeometry(1.96,1.96,1.96),rubbleGeo=new THREE.BoxGeometry(1,1,1);
 const blocks=new Map(),debris=[],effects=[];
 const operator=new Operator(scene),nuclearBlast=new NuclearBlast(scene);
+const people=new People(scene);
 let tool='build',floor=0,broken=0,nukeCooldown=0,shake=0,hover=null;
 const ghost=new THREE.Mesh(blockGeo,new THREE.MeshBasicMaterial({color:0x9bdda8,transparent:true,opacity:.32,depthWrite:false}));const edges=new THREE.LineSegments(new THREE.EdgesGeometry(blockGeo),new THREE.LineBasicMaterial({color:0xc9ffe0}));ghost.add(edges);scene.add(ghost);
 const ray=new THREE.Raycaster(),pointer=new THREE.Vector2(),point=new THREE.Vector3();
 function message(text){$('message').textContent=text;}
-function stats(){$('count').textContent=`${blocks.size} blocks`;$('damage').textContent=broken?`${broken} blocks destroyed`:'Site intact';}
+function stats(){$('count').textContent=`${blocks.size} blocks`;$('damage').textContent=broken?`${broken} blocks destroyed`:'Site intact';const crowd=people.counts();$('people-count').textContent=`${crowd.total} / ${crowd.limit} people · ${crowd.ragdolls} ragdolls`;}
 function addBlock(x,y,z,type){const k=key(x,y,z);if(blocks.has(k)||blocks.size>=1800)return false;const m=new THREE.Mesh(blockGeo,materials[type]);m.position.set(x*CELL,y*CELL+1,z*CELL);m.castShadow=m.receiveShadow=true;const b={x,y,z,type,hp:strength[type],m};m.userData.block=b;scene.add(m);blocks.set(k,b);return true;}
 function tower(){let ox=0;while([...blocks.values()].some(b=>Math.abs(b.x-ox)<=3&&Math.abs(b.z)<=3)){ox+=8;if(ox>24){message('Clear some space before adding another tower.');return;}}
  for(let y=0;y<8;y++)for(let x=-2;x<=2;x++)for(let z=-2;z<=2;z++){
@@ -73,6 +75,7 @@ function blast(pos,nuclear){const radius=nuclear?31:4.5,power=nuclear?2000:180;
  let glassBroken=false;
  for(const b of [...blocks.values()]){const damage=blastDamage(b.m.position.distanceTo(pos),radius,power);b.hp-=damage;if(b.hp<=0){if(b.type==='glass')glassBroken=true;remove(b,pos,power);}}
  collapse();stats();shake=nuclear?1.2:.18;
+ people.explode(pos,radius,nuclear);stats();
  sound.play(nuclear?'nuclear':'blaster');if(glassBroken&&!nuclear)sound.play('glass');
  if(nuclear){
   nuclearBlast.detonate(pos);nukeCooldown=15;message('Nuclear blast detonated. Watch the shockwave and rising cloud.');
@@ -94,11 +97,17 @@ canvas.addEventListener('pointerup',e=>{
   const p=pickBuild(e);if(!p)return;const neighbors=[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
   if(p.y>0&&!neighbors.some(([x,y,z])=>blocks.has(key(p.x+x,p.y+y,p.z+z)))){message('Upper blocks need support. Build beside or above an existing section.');return;}
   const human=operator.group.position;if(!clearBody(human.x,human.y,human.z,[p])){message('Step away before building in your character’s space.');return;}
+  if(people.occupied(p.x*CELL,p.y*CELL,p.z*CELL)){message('Choose a cell away from a standing person.');return;}
   if(addBlock(p.x,p.y,p.z,$('material').value)){sound.play('build',$('material').value);stats();message('Section placed. Change height to build another floor.');}else message('That cell is occupied or the site is full.');
  }else{
-  aim(e);const hits=ray.intersectObjects([...blocks.values()].map(b=>b.m));let hit=hits[0]?.point;
+  aim(e);const targets=[...blocks.values()].map(b=>b.m);if(tool!=='people')targets.push(...people.targets);const hits=ray.intersectObjects(targets);let hit=hits[0]?.point;
   if(!hit)hit=ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),new THREE.Vector3());
   if(!hit||Math.abs(hit.x)>60||Math.abs(hit.z)>60)return;
+  if(tool==='people'){
+   if(hits[0]&&hits[0].face.normal.y<.5){message('Place people on the ground or a rooftop.');return;}
+   if(Math.hypot(hit.x-operator.group.position.x,hit.z-operator.group.position.z)<.75){message('Choose a spot beside Ethan.');return;}
+   const error=people.add({x:hit.x,y:hit.y+.03,z:hit.z},blocks);if(!error)sound.play('build');stats();message(error||'Stick person added. Fire nearby to launch their ragdoll!');return;
+  }
   if(tool==='nuke'&&nukeCooldown>0){message(`Nuclear blast recharging: ${Math.ceil(nukeCooldown)} seconds.`);return;}
   if(tool==='blaster'){
    operator.aim(hit);
@@ -108,15 +117,17 @@ canvas.addEventListener('pointerup',e=>{
   blast(hit.clone(),tool==='nuke');
  }
 });
-function selectTool(t){tool=t;operator.setTool(t);document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('selected',b.dataset.tool===t));ghost.visible=t==='build';message(t==='build'?'Click the grid to build. WASD moves Ethan; Space jumps.':t==='blaster'?'Click a building to fire Ethan’s blaster. WASD moves; Space jumps.':'Click a target to detonate a fictional nuclear blast.');}
+function selectTool(t){tool=t;operator.setTool(t);document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('selected',b.dataset.tool===t));ghost.visible=t==='build';message(t==='build'?'Click the grid to build. WASD moves Ethan; Space jumps.':t==='blaster'?'Click a building or stick person to fire Ethan’s blaster.':t==='people'?'Click open ground or a rooftop to place a stick person.':'Click a target to detonate a fictional nuclear blast.');}
 for(const b of document.querySelectorAll('[data-tool]'))b.onclick=()=>selectTool(b.dataset.tool);
 function setFloor(n){floor=Math.max(0,Math.min(11,n));$('height').value=floor;$('height-label').textContent=floor+1;hover=null;}
 $('height').oninput=e=>setFloor(Number(e.target.value));$('tower').onclick=()=>{tower();sound.play('build');};
-function reset(){for(const b of blocks.values())scene.remove(b.m);blocks.clear();for(const d of debris)scene.remove(d.m);debris.length=0;for(const e of effects){scene.remove(e.m);e.m.material.dispose();if(e.kind==='beam')e.m.geometry.dispose();}effects.length=0;broken=0;nukeCooldown=0;shake=0;keys.clear();jumpQueued=false;operator.reset();nuclearBlast.clear();setFloor(0);tower();selectTool('build');}
+function reset(){for(const b of blocks.values())scene.remove(b.m);blocks.clear();for(const d of debris)scene.remove(d.m);debris.length=0;for(const e of effects){scene.remove(e.m);e.m.material.dispose();if(e.kind==='beam')e.m.geometry.dispose();}effects.length=0;broken=0;nukeCooldown=0;shake=0;keys.clear();jumpQueued=false;operator.reset();nuclearBlast.clear();setFloor(0);tower();people.reset(blocks);stats();selectTool('build');}
 $('reset').onclick=()=>{sound.stop();reset();};
+$('add-person').onclick=()=>{const error=people.addNear(operator.group.position,blocks);stats();message(error||'A stick person joined the yard.');if(!error)sound.play('build');};
+$('stand-people').onclick=()=>{people.standEveryone(blocks);stats();message('Everyone is standing again. Try another blast!');};
 function followCharacter(value){follow=value;$('follow').textContent=follow?'Overview camera':'Follow Ethan';$('follow').setAttribute('aria-pressed',String(follow));if(follow){controls.target.copy(operator.group.position).add(new THREE.Vector3(0,1,0));camera.position.copy(controls.target).add(new THREE.Vector3(5,3.5,7));controls.minDistance=3;}else{controls.target.set(0,7,0);camera.position.set(30,24,35);controls.minDistance=8;}controls.update();}
 $('follow').onclick=()=>followCharacter(!follow);
-addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return;const k=e.key.toLowerCase();if(k===' '&&document.activeElement.tagName==='BUTTON')return;if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();keys.add(k);if(k===' '&&!e.repeat)jumpQueued=true;if(['1','2','3'].includes(k))selectTool(['build','blaster','nuke'][Number(k)-1]);if(k==='q')setFloor(floor-1);if(k==='e')setFloor(floor+1);if(k==='c'&&!e.repeat)followCharacter(!follow);});
+addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return;const k=e.key.toLowerCase();if(k===' '&&document.activeElement.tagName==='BUTTON')return;if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();keys.add(k);if(k===' '&&!e.repeat)jumpQueued=true;if(['1','2','3','4'].includes(k))selectTool(['build','blaster','nuke','people'][Number(k)-1]);if(k==='q')setFloor(floor-1);if(k==='e')setFloor(floor+1);if(k==='c'&&!e.repeat)followCharacter(!follow);});
 addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
 addEventListener('blur',()=>{keys.clear();jumpQueued=false;});
 for(const button of document.querySelectorAll('[data-move]')){button.onpointerdown=e=>{e.preventDefault();button.setPointerCapture(e.pointerId);keys.add(button.dataset.move);if(button.dataset.move===' ')jumpQueued=true;};button.onpointerup=button.onpointercancel=()=>keys.delete(button.dataset.move);}
@@ -124,6 +135,8 @@ function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWi
 const clock=new THREE.Clock();
 function frame(){requestAnimationFrame(frame);const dt=Math.min(clock.getDelta(),.04);nukeCooldown=Math.max(0,nukeCooldown-dt);
  operator.update(dt,keys,camera,blocks,sound,jumpQueued);jumpQueued=false;
+ people.update(dt,blocks);
+ const crowd=people.counts(),crowdLabel=`${crowd.total} / ${crowd.limit} people · ${crowd.ragdolls} ragdolls`;if($('people-count').textContent!==crowdLabel)$('people-count').textContent=crowdLabel;
  if(follow){const target=operator.group.position.clone().add(new THREE.Vector3(0,1,0));camera.position.add(target.clone().sub(controls.target));controls.target.copy(target);}
  nuclearBlast.update(dt);
  $('flash').style.opacity=String(nuclearBlast.active?Math.exp(-nuclearBlast.age*9)*(reducedMotion?.2:.8):0);
@@ -136,4 +149,4 @@ function frame(){requestAnimationFrame(frame);const dt=Math.min(clock.getDelta()
  controls.update();const offset=new THREE.Vector3();if(shake>0){shake=Math.max(0,shake-dt);if(!reducedMotion){offset.set((Math.random()-.5)*shake,(Math.random()-.5)*shake,0);camera.position.add(offset);}}renderer.render(scene,camera);camera.position.sub(offset);
 }frame();
 // Read-only diagnostic state for automated smoke checks.
-window.demolitionState=()=>({blocks:blocks.size,debris:debris.length,destroyed:broken,tool,effects:effects.length,character:operator.state(),follow,audio:sound.state(),nuclear:nuclearBlast.state()});
+window.demolitionState=()=>({blocks:blocks.size,debris:debris.length,destroyed:broken,tool,effects:effects.length,character:operator.state(),people:people.state(camera),follow,audio:sound.state(),nuclear:nuclearBlast.state()});
