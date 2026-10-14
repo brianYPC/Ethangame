@@ -6,7 +6,7 @@ page.on('pageerror',e=>{errors.push(e.message);console.log('Browser error:',e.me
 const state=()=>page.evaluate(()=>window.demolitionState());
 await page.goto(process.env.GAME_URL||'http://127.0.0.1:5173');await page.waitForFunction(()=>window.demolitionState?.().blocks===155,null,{polling:100,timeout:30000});
 try {
-assert.equal((await state()).audio.state,'locked');assert.equal((await state()).people.total,4);assert.equal((await state()).people.ragdolls,0);
+assert.equal((await state()).audio.state,'locked');await page.locator('#waves').click();assert.equal((await state()).combat.enabled,false);assert.equal((await state()).people.total,4);assert.equal((await state()).people.ragdolls,0);
 await page.screenshot({path:'/tmp/game-preview.png'});
 await page.evaluate(()=>{window.audioPeak=0;window.audioProbe=setInterval(()=>{window.audioPeak=Math.max(window.audioPeak,window.demolitionState().audio.level);},10);});
 await page.mouse.click(920,550);assert.equal((await state()).blocks,156);
@@ -17,7 +17,9 @@ await page.locator('[data-tool="people"]').click();await page.mouse.click(950,60
 await page.locator('[data-tool="blaster"]').click();const target=(await state()).people.items.find(p=>p.id===3);await page.mouse.click(...target.screen);assert.ok((await state()).people.ragdolls>=1);
 await page.waitForFunction(()=>window.demolitionState().people.items.find(p=>p.id===3).position[1]>1.1,null,{polling:50,timeout:5000});console.log('Direct blaster hits launch a stick person into a ragdoll.');
 await page.mouse.click(640,400);assert.ok((await state()).destroyed>0);
-await page.locator('[data-tool="nuke"]').click();await page.mouse.click(640,400);assert.equal((await state()).blocks,0);assert.equal((await state()).nuclear.active,true);assert.ok((await state()).people.ragdolls>=4);
+await page.locator('[data-tool="nuke"]').click();await page.waitForSelector('#typing-dialog[open]');
+const word=(await state()).typing.word;await page.locator('#typing-input').pressSequentially(word);assert.equal((await state()).typing.ready,true);assert.equal((await state()).typing.open,false);
+await page.mouse.click(640,400);assert.equal((await state()).blocks,0);assert.equal((await state()).nuclear.active,true);assert.ok((await state()).people.ragdolls>=4);
 await page.waitForFunction(()=>window.audioPeak>.0001,null,{polling:50,timeout:5000});await page.evaluate(()=>clearInterval(window.audioProbe));console.log('Explosion generates a measured audio waveform.');
 await page.waitForFunction(()=>window.demolitionState().nuclear.phase==='mushroom',null,{polling:100,timeout:15000});
 assert.ok((await state()).people.items.every(p=>p.maxJointError<.2));

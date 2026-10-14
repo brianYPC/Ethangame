@@ -44,6 +44,9 @@ export class SoundEffects {
   this.lastEvent=event;this.events++;
   if(event==='blaster'){this.tone(950,75,.23,.22,'sawtooth');this.noise(.3,.32,2600);this.tone(100,30,.45,.28);}
   else if(event==='nuclear'){this.tone(65,22,3.5,.5);this.noise(4.5,.8,850,.12);this.noise(6,.45,200,.5);this.tone(35,17,5,.35,'sine',.25);}
+  else if(event==='typing'){this.tone(360,280,.06,.035,'triangle');}
+  else if(event==='charged'){this.tone(440,440,.12,.07,'triangle');this.tone(660,660,.12,.07,'triangle',.1);this.tone(880,880,.2,.07,'triangle',.2);}
+  else if(event==='alert'){this.tone(90,45,.6,.14);this.tone(240,480,.45,.08,'triangle');this.noise(.5,.13,800);}
   else if(event==='collapse'){this.noise(1.6,.3,600);this.tone(90,35,.9,.16);}
   else if(event==='glass'){this.noise(.45,.12,6000,0,'highpass');this.tone(1900,850,.4,.025,'triangle');}
   else if(event==='step'){this.noise(.09,.07,450);this.tone(90,45,.09,.04);}

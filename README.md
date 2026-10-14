@@ -35,3 +35,9 @@ For a temporary 30-minute public playtest, run the Temporary browser preview wor
 ## Stick people and ragdolls
 
 Four colorful stick figures start around the tower. Add person spawns another near Ethan; Place person (key 4) lets you click open ground or a rooftop to position one. The yard supports up to 24 people. Blaster impacts and nuclear blasts launch nearby figures into articulated ragdolls. Their connected arms, legs, torso, and head tumble, bounce off buildings, and settle on the ground. Stand everyone up restores the crowd; Reset site restores the original four. Rooftop figures also fall when their supports are destroyed.
+
+## Typing and zombie waves
+
+Each nuke needs a correctly typed random word, instead of a cooldown. Select Nuclear blast or Type to arm nuke, type the word shown, and click your target. Each word earns exactly one launch. The game pauses while you type, with no time limit. Errors are highlighted and can be corrected with Backspace.
+
+After you start playing, monsters periodically leap into the yard and summon zombies. Enemies chase Ethan and reduce his health. Use the blaster or earn a nuke to stop them; destroying a monster stops its zombie spawning. Clearing a wave restores some health. Monster waves can be switched off for free building, and Call a monster now starts a practice wave.
