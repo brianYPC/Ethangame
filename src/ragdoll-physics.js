@@ -35,6 +35,7 @@ function collide(node,blocks){
  const p=node.p,old=node.previous,r=node.radius;
  if(p.y<r){const vx=p.x-old.x,vy=p.y-old.y,vz=p.z-old.z;p.y=r;old.x=p.x-vx*.72;old.z=p.z-vz*.72;old.y=r+Math.min(0,vy)*.16;}
  for(const b of blocks){
+  if(Math.abs(p.x-b.x*CELL)>=CELL/2+r||Math.abs(p.z-b.z*CELL)>=CELL/2+r||p.y<=b.y*CELL-r||p.y>=(b.y+1)*CELL+r)continue;
   const lo=[b.x*CELL-CELL/2-r,b.y*CELL-r,b.z*CELL-CELL/2-r],hi=[b.x*CELL+CELL/2+r,(b.y+1)*CELL+r,b.z*CELL+CELL/2+r],v=[p.x,p.y,p.z];
   if(v.some((n,i)=>n<=lo[i]||n>=hi[i]))continue;
   let axis=0,target=lo[0],depth=v[0]-lo[0];

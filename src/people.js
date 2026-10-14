@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {CELL} from './physics.js';
 import {clearBody} from './movement.js';
 import {BONES,FIXED_STEP,createRagdoll,explodeRagdoll,stepRagdoll,jointError} from './ragdoll-physics.js';
+import {loopLength,sampleLoop} from './city-paths.js';
 const MAX_PEOPLE=24,colors=[0x458cc4,0xe3a54d,0x7dae7e,0xb48bcc,0xe18d78,0x70b9bf];
 export class People {
  constructor(scene){
@@ -16,7 +17,7 @@ export class People {
   if(this.people.length>=MAX_PEOPLE)return 'The yard holds up to 24 people. Stand them up or reset the site.';
   if(!clearBody(position.x,position.y,position.z,[...blocks.values()])||this.occupied(position.x,position.y,position.z))return 'Choose an open spot on the ground or a rooftop.';
   const material=new THREE.MeshStandardMaterial({color:colors[this.serial%colors.length],roughness:.7}),group=new THREE.Group(),body=createRagdoll(position.x,position.y,position.z,this.serial*.8);
-  this.scene.add(group);const person={id:++this.serial,group,material,body,spawn:{...position},phase:this.serial,bones:[]};
+  this.scene.add(group);const person={id:++this.serial,group,material,body,spawn:{...position},position:{...position},phase:this.serial,heading:this.serial*.8,walking:false,route:null,distance:0,bones:[]};
   for(const [a,b] of BONES){const m=new THREE.Mesh(this.cylinder,material);m.castShadow=true;m.receiveShadow=true;m.userData.person=person;group.add(m);person.bones.push(m);}
   person.head=new THREE.Mesh(this.sphere,this.headMaterial);person.head.scale.setScalar(.19);person.head.castShadow=true;person.head.userData.person=person;group.add(person.head);
   for(const x of [-.065,.065]){const eye=new THREE.Mesh(this.sphere,this.eyeMaterial);eye.scale.setScalar(.018/.19);eye.position.set(x/.19,.025/.19,.174/.19);person.head.add(eye);}
@@ -43,7 +44,18 @@ export class People {
   for(const p of this.people){
    if(!p.body.ragdoll){
     if(!this.supported(p.spawn,list)){p.body.ragdoll=true;p.body.active=true;}
-    else{p.phase+=dt;const sway=Math.sin(p.phase*1.4)*.025;p.body.nodes[2].p.x=p.spawn.x+sway;}
+    else{
+     p.phase+=dt*5;let moving=false;
+     if(p.spawn.y<.15){
+      const direction=p.id%2?1:-1,half=7.3,next=p.route?sampleLoop(p.distance+dt*.8*direction,half,1.3):{x:p.position.x+Math.sin(p.heading)*dt*.65,z:p.position.z+Math.cos(p.heading)*dt*.65,yaw:p.heading};
+      if(Math.abs(next.x)<45&&Math.abs(next.z)<45&&clearBody(next.x,p.position.y,next.z,list)&&!this.people.some(other=>other!==p&&!other.body.ragdoll&&Math.hypot(other.position.x-next.x,other.position.z-next.z)<.55)){
+       p.position.x=next.x;p.position.z=next.z;p.heading=next.yaw+(p.route&&direction<0?Math.PI:0);if(p.route)p.distance+=dt*.8*direction;moving=dt>0;
+      }else if(!p.route)p.heading+=dt*2;
+     }
+     p.walking=moving;const body=createRagdoll(p.position.x,p.position.y,p.position.z,p.heading),stride=moving?Math.sin(p.phase)*.18:0;
+     for(const [index,sign] of [[11,1],[14,-1],[5,-.6],[8,.6]]){body.nodes[index].p.x+=Math.sin(p.heading)*stride*sign;body.nodes[index].p.z+=Math.cos(p.heading)*stride*sign;}
+     p.body=body;
+    }
    }
    this.draw(p);
   }
@@ -52,10 +64,10 @@ export class People {
  standEveryone(blocks){
   const list=[...blocks.values()];for(const person of this.people){let {x,z}=person.spawn,y=0;
    for(const b of list)if(Math.abs(x-b.x*CELL)<=CELL/2&&Math.abs(z-b.z*CELL)<=CELL/2)y=Math.max(y,(b.y+1)*CELL);
-   person.spawn={x,y,z};person.body=createRagdoll(x,y,z,person.id*.8);this.draw(person);
+   person.spawn={x,y,z};person.position={x,y,z};person.body=createRagdoll(x,y,z,person.id*.8);this.draw(person);
   }
  }
- reset(blocks){for(const p of this.people){this.scene.remove(p.group);p.material.dispose();}this.people=[];this.serial=0;this.accumulator=0;for(const [x,z] of [[-7,6],[1,7],[7,1],[-7,-2]])this.add({x,y:0,z},blocks);}
- counts(){return {total:this.people.length,ragdolls:this.people.filter(p=>p.body.ragdoll).length,moving:this.people.filter(p=>p.body.active).length,limit:MAX_PEOPLE};}
+ reset(blocks){for(const p of this.people){this.scene.remove(p.group);p.material.dispose();}this.people=[];this.serial=0;this.accumulator=0;for(const [x,z] of [[-7,6],[1,7],[7,1],[-7,-2]])this.add({x,y:0,z},blocks);for(let i=0;i<8;i++){const distance=i*loopLength(7.3,1.3)/8,point=sampleLoop(distance,7.3,1.3);if(!this.add({x:point.x,y:0,z:point.z},blocks)){const person=this.people.at(-1);person.route=true;person.distance=distance;person.heading=point.yaw;}}}
+ counts(){return {total:this.people.length,ragdolls:this.people.filter(p=>p.body.ragdoll).length,moving:this.people.filter(p=>p.body.active).length,walking:this.people.filter(p=>!p.body.ragdoll&&p.walking).length,limit:MAX_PEOPLE};}
  state(camera){return {...this.counts(),items:this.people.map(p=>{const head=p.body.nodes[2].p,projected=camera?new THREE.Vector3(head.x,head.y,head.z).project(camera):null;return {id:p.id,ragdoll:p.body.ragdoll,position:[p.body.nodes[0].p.x,p.body.nodes[0].p.y,p.body.nodes[0].p.z],head:[head.x,head.y,head.z],screen:projected?[(projected.x*.5+.5)*innerWidth,(-projected.y*.5+.5)*innerHeight]:null,maxJointError:jointError(p.body)};})};}
 }

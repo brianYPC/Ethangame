@@ -1,6 +1,6 @@
 # Ethan: Demolition Lab
 
-A 3D building and destruction sandbox using Three.js. Place concrete, brick, steel, and glass sections, add eight-story towers, and destroy them with a blaster or a fictional nuclear blast. Procedural material textures, shadows, animated explosions, and debris give the yard an industrial look.
+A 3D building and destruction sandbox using Three.js. Place concrete, brick, steel, and glass sections, add eight-story towers, and destroy them with a blaster or a fictional nuclear blast. Procedural material textures, shadows, animated explosions, and debris bring a city with streets, storefronts, trees, and traffic to life. Seven surrounding buildings can also be demolished; six cars drive around the streets and react to explosions.
 
 ## Run
 
@@ -34,10 +34,12 @@ For a temporary 30-minute public playtest, run the Temporary browser preview wor
 
 ## Stick people and ragdolls
 
-Four colorful stick figures start around the tower. Add person spawns another near Ethan; Place person (key 4) lets you click open ground or a rooftop to position one. The yard supports up to 24 people. Blaster impacts and nuclear blasts launch nearby figures into articulated ragdolls. Their connected arms, legs, torso, and head tumble, bounce off buildings, and settle on the ground. Stand everyone up restores the crowd; Reset site restores the original four. Rooftop figures also fall when their supports are destroyed.
+Ten colorful stick figures start around the tower and walk around the sidewalks. Add person spawns another near Ethan; Place person (key 4) lets you click open ground or a rooftop to position one. The yard supports up to 24 people. Blaster impacts and nuclear blasts launch nearby figures into articulated ragdolls. Their connected arms, legs, torso, and head tumble, bounce off buildings, and settle on the ground. Stand everyone up restores the crowd; Reset site restores the original ten. Rooftop figures also fall when their supports are destroyed.
 
 ## Typing and zombie waves
 
-Each nuke needs a correctly typed random word, instead of a cooldown. Select Nuclear blast or Type to arm nuke, type the word shown, and click your target. Each word earns exactly one launch. The game pauses while you type, with no time limit. Errors are highlighted and can be corrected with Backspace.
+Typing practice is optional. Use **Typing practice: On/Off** in the left panel, or **Turn typing off** in the word dialog. With practice off, select Nuclear blast and click a target to fire immediately; there is no typing requirement or cooldown. The setting is remembered in this browser.
 
-After you start playing, monsters periodically leap into the yard and summon zombies. Enemies chase Ethan and reduce his health. Use the blaster or earn a nuke to stop them; destroying a monster stops its zombie spawning. Clearing a wave restores some health. Monster waves can be switched off for free building, and Call a monster now starts a practice wave.
+With practice on, each nuke needs a correctly typed random word, instead of a cooldown. Select Nuclear blast or Type to arm nuke, type the word shown, and click your target. Each word earns exactly one launch. The game pauses while you type, with no time limit. Errors are highlighted and can be corrected with Backspace.
+
+Three zombies are visible immediately; **Find zombies** moves the camera to them, and **Add zombies now** brings in more. After you start playing, monsters periodically leap into the city and summon zombies. Enemies chase Ethan and reduce his health. Use the blaster or earn a nuke to stop them; destroying a monster stops its zombie spawning. Clearing a wave restores some health. Monster waves can be switched off for free building, and Call a monster now starts a practice wave.

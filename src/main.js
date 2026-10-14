@@ -10,10 +10,11 @@ import {People} from './people.js';
 import {TypingCharge} from './typing-charge.js';
 import {Encounter} from './encounter.js';
 import {EnemyWorld} from './enemies.js';
+import {City} from './city.js';
 const $=id=>document.getElementById(id),canvas=$('world');
 const sound=new SoundEffects(),keys=new Set();
 let follow=false,jumpQueued=false,typingOpen=false,pendingNuke=null,lastWave=0,lastHealth=100;
-const charge=new TypingCharge();
+const charge=new TypingCharge();let typingEnabled=true;try{typingEnabled=localStorage.getItem('ethan-typing')!=='false';}catch{}
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 document.addEventListener('pointerdown',()=>{sound.unlock();encounter.start();},{capture:true});
 document.addEventListener('keydown',()=>{sound.unlock();encounter.start();},{capture:true});
@@ -43,11 +44,9 @@ function texture(type){
 const materials=Object.fromEntries(Object.keys(strength).map(type=>[type,new THREE.MeshStandardMaterial({map:texture(type),roughness:type==='glass'?.16:type==='steel'?.38:.93,metalness:type==='steel'?.8:type==='glass'?.35:0,color:0xffffff})]));
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(220,220),new THREE.MeshStandardMaterial({color:0x777e7c,roughness:1}));ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
 const grid=new THREE.GridHelper(64,32,0xabb1aa,0x8d9691);grid.position.set(1,.015,1);grid.material.transparent=true;grid.material.opacity=.4;scene.add(grid);
-// Distant industrial scenery gives the construction yard scale.
-const sceneryMat=new THREE.MeshStandardMaterial({color:0x66727a,roughness:.9});
-for(let i=0;i<16;i++){const h=4+(i*7%13),m=new THREE.Mesh(new THREE.BoxGeometry(8,h,10),sceneryMat);m.position.set((i-8)*13,h/2,-65-(i%3)*8);m.receiveShadow=true;scene.add(m);}
 const blockGeo=new THREE.BoxGeometry(1.96,1.96,1.96),rubbleGeo=new THREE.BoxGeometry(1,1,1);
 const blocks=new Map(),debris=[],effects=[];
+const city=new City(scene),world={values:()=>[...blocks.values(),...city.colliders]};
 const operator=new Operator(scene),nuclearBlast=new NuclearBlast(scene);
 const people=new People(scene);
 const encounter=new Encounter(),enemyWorld=new EnemyWorld(scene);
@@ -65,16 +64,20 @@ function openChallenge(target=null){
  if(!$('typing-dialog').open)$('typing-dialog').showModal();$('typing-input').focus();
 }
 function closeChallenge(){typingOpen=false;pendingNuke=null;keys.clear();jumpQueued=false;if($('typing-dialog').open)$('typing-dialog').close();}
-function launchNuke(position){if(!charge.consume()){openChallenge(position);return;}blast(position,true);}
+function launchNuke(position){if(typingEnabled&&!charge.consume()){openChallenge(position);return;}blast(position,true);}
 $('typing-input').oninput=e=>{sound.play('typing');const completed=charge.type(e.target.value);renderChallenge();if(completed){const target=pendingNuke?.clone();sound.play('charged');closeChallenge();if(target)launchNuke(target);else message('Nuke armed! Click a target. Each launch needs a new word.');}};
 $('typing-input').onpaste=e=>{e.preventDefault();$('typing-feedback').textContent='Type the word yourself to practice.';};
 $('typing-input').ondrop=e=>e.preventDefault();
 $('typing-cancel').onclick=closeChallenge;
 $('typing-dialog').oncancel=e=>{e.preventDefault();closeChallenge();};
 $('arm-nuke').onclick=()=>selectTool('nuke');
-$('waves').onclick=()=>{encounter.setEnabled(!encounter.enabled);if(!encounter.enabled)enemyWorld.clear();};
-$('summon-monster').onclick=()=>{if(!encounter.summon(operator.group.position,[...blocks.values()]))message(encounter.enabled?'Clear the current wave before calling another monster.':'Enable monster waves first.');};
-$('retry-wave').onclick=()=>{if($('game-over').open)$('game-over').close();closeChallenge();encounter.reset();encounter.start();enemyWorld.clear();operator.reset();charge.reset();keys.clear();lastWave=0;lastHealth=100;message('Back on your feet. Type to arm a nuke before the next wave.');};
+function setTyping(value){typingEnabled=value;if(value){charge.ready=false;charge.nextWord();}closeChallenge();try{localStorage.setItem('ethan-typing',String(value));}catch{}message(value?'Typing practice enabled. Each nuke needs a word.':'Typing is off. Select the nuke and click a target to launch directly.');battleHUD();}
+$('typing-toggle').onclick=()=>setTyping(!typingEnabled);$('typing-off-modal').onclick=()=>setTyping(false);
+$('spawn-zombies').onclick=()=>{if(!encounter.enabled){encounter.setEnabled(true);}encounter.seedCity([...world.values()]);};
+$('find-zombies').onclick=()=>{let target=encounter.enemies.find(e=>e.type==='zombie');if(!target){encounter.setEnabled(true);encounter.seedCity([...world.values()]);target=encounter.enemies.find(e=>e.type==='zombie');}if(target){follow=false;$('follow').textContent='Follow Ethan';$('follow').setAttribute('aria-pressed','false');controls.target.set(target.x,1.3,target.z);camera.position.set(target.x+5,5,target.z+7);controls.update();message('Zombies are marked in green. Select the blaster or nuke to fight them.');}};
+$('waves').onclick=()=>{encounter.setEnabled(!encounter.enabled);if(!encounter.enabled)enemyWorld.clear();else encounter.seedCity([...world.values()]);};
+$('summon-monster').onclick=()=>{if(!encounter.summon(operator.group.position,[...world.values()]))message(encounter.enabled?'Clear the current wave before calling another monster.':'Enable monster waves first.');};
+$('retry-wave').onclick=()=>{if($('game-over').open)$('game-over').close();closeChallenge();encounter.reset();encounter.seedCity([...world.values()]);encounter.start();enemyWorld.clear();operator.reset();charge.reset();keys.clear();lastWave=0;lastHealth=100;message('Back on your feet. Type to arm a nuke before the next wave.');};
 function battleHUD(){
  const health=`${encounter.health} HP`,summary=`Wave ${encounter.wave} · ${encounter.state().monsters} monster · ${encounter.state().zombies} zombies · ${encounter.score} points`;
  if($('health').textContent!==health)$('health').textContent=health;
@@ -82,8 +85,10 @@ function battleHUD(){
  if($('battle-summary').textContent!==summary)$('battle-summary').textContent=summary;
  if($('battle-notice').textContent!==encounter.notice)$('battle-notice').textContent=encounter.notice;
  $('waves').textContent=`Monster waves: ${encounter.enabled?'On':'Off'}`;$('waves').setAttribute('aria-pressed',String(encounter.enabled));
- $('nuke-status').textContent=`${charge.ready?'Launch ready':'Type a word for each launch'} · ${charge.completed} words completed`;
- $('arm-nuke').disabled=charge.ready;$('arm-nuke').textContent=charge.ready?'Nuke armed — click a target':'Type to arm nuke';
+ $('nuke-status').textContent=typingEnabled?`${charge.ready?'Launch ready':'Type a word for each launch'} · ${charge.completed} words completed`:'Typing off · launch nukes directly';
+ $('typing-toggle').textContent=`Typing practice: ${typingEnabled?'On':'Off'}`;$('typing-toggle').setAttribute('aria-pressed',String(typingEnabled));
+ const zombies=`${encounter.state().zombies} zombies`;if($('zombie-hud').textContent!==zombies)$('zombie-hud').textContent=zombies;
+ $('arm-nuke').disabled=charge.ready||!typingEnabled;$('arm-nuke').textContent=charge.ready||!typingEnabled?'Nuke ready — click a target':'Type to arm nuke';
 }
 function stats(){$('count').textContent=`${blocks.size} blocks`;$('damage').textContent=broken?`${broken} blocks destroyed`:'Site intact';const crowd=people.counts();$('people-count').textContent=`${crowd.total} / ${crowd.limit} people · ${crowd.ragdolls} ragdolls`;}
 function addBlock(x,y,z,type){const k=key(x,y,z);if(blocks.has(k)||blocks.size>=1800)return false;const m=new THREE.Mesh(blockGeo,materials[type]);m.position.set(x*CELL,y*CELL+1,z*CELL);m.castShadow=m.receiveShadow=true;const b={x,y,z,type,hp:strength[type],m};m.userData.block=b;scene.add(m);blocks.set(k,b);return true;}
@@ -110,11 +115,12 @@ function blast(pos,nuclear){const radius=nuclear?31:4.5,power=nuclear?2000:180;
  let glassBroken=false;
  for(const b of [...blocks.values()]){const damage=blastDamage(b.m.position.distanceTo(pos),radius,power);b.hp-=damage;if(b.hp<=0){if(b.type==='glass')glassBroken=true;remove(b,pos,power);}}
  collapse();stats();shake=nuclear?1.2:.18;
+ for(const building of city.blast(pos,radius,nuclear))for(let i=0;i<10;i++)fragment({type:'concrete',m:{position:new THREE.Vector3(building.x+(Math.random()-.5)*8,Math.random()*building.height,building.z+(Math.random()-.5)*8)}},pos,nuclear?1500:180);
  people.explode(pos,radius,nuclear);stats();
  enemyWorld.defeat(encounter.hit(pos,radius,power),pos,radius,nuclear);
  sound.play(nuclear?'nuclear':'blaster');if(glassBroken&&!nuclear)sound.play('glass');
  if(nuclear){
-  nuclearBlast.detonate(pos);message('Nuclear blast detonated! Type a new word for your next launch.');
+  nuclearBlast.detonate(pos);message(typingEnabled?'Nuclear blast detonated! Type a new word for your next launch.':'Nuclear blast detonated! Click another target to launch again.');
  }else {
   effect(explosionGeo,pos,0xffc266,3,.4,'fire');
   const ring=effect(ringGeo,new THREE.Vector3(pos.x,.15,pos.z),0xffde9e,7,.6,'ring');ring.rotation.x=Math.PI/2;
@@ -133,17 +139,18 @@ canvas.addEventListener('pointerup',e=>{
  if(tool==='build'){
   const p=pickBuild(e);if(!p)return;const neighbors=[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
   if(p.y>0&&!neighbors.some(([x,y,z])=>blocks.has(key(p.x+x,p.y+y,p.z+z)))){message('Upper blocks need support. Build beside or above an existing section.');return;}
+  if(!clearBody(p.x*CELL,p.y*CELL,p.z*CELL,city.colliders)){message('That cell is occupied by a city building.');return;}
   const human=operator.group.position;if(!clearBody(human.x,human.y,human.z,[p])){message('Step away before building in your character’s space.');return;}
   if(people.occupied(p.x*CELL,p.y*CELL,p.z*CELL)){message('Choose a cell away from a standing person.');return;}
   if(addBlock(p.x,p.y,p.z,$('material').value)){sound.play('build',$('material').value);stats();message('Section placed. Change height to build another floor.');}else message('That cell is occupied or the site is full.');
  }else{
-  aim(e);const targets=[...blocks.values()].map(b=>b.m);if(tool!=='people')targets.push(...people.targets,...enemyWorld.targets);const hits=ray.intersectObjects(targets);let hit=hits[0]?.point;
+  aim(e);const targets=[...blocks.values()].map(b=>b.m);targets.push(...city.targets);if(tool!=='people')targets.push(...people.targets,...enemyWorld.targets);const hits=ray.intersectObjects(targets);let hit=hits[0]?.point;
   if(!hit)hit=ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),new THREE.Vector3());
   if(!hit||Math.abs(hit.x)>60||Math.abs(hit.z)>60)return;
   if(tool==='people'){
-   if(hits[0]&&hits[0].face.normal.y<.5){message('Place people on the ground or a rooftop.');return;}
+   if(hits[0]&&(hits[0].object.userData.car||hits[0].face.normal.y<.5)){message('Place people on the ground or a rooftop.');return;}
    if(Math.hypot(hit.x-operator.group.position.x,hit.z-operator.group.position.z)<.75){message('Choose a spot beside Ethan.');return;}
-   const error=people.add({x:hit.x,y:hit.y+.03,z:hit.z},blocks);if(!error)sound.play('build');stats();message(error||'Stick person added. Fire nearby to launch their ragdoll!');return;
+   const error=people.add({x:hit.x,y:hit.y+.03,z:hit.z},world);if(!error)sound.play('build');stats();message(error||'Stick person added. Fire nearby to launch their ragdoll!');return;
   }
   if(tool==='nuke'){launchNuke(hit.clone());return;}
   if(tool==='blaster'){
@@ -154,14 +161,14 @@ canvas.addEventListener('pointerup',e=>{
   blast(hit.clone(),tool==='nuke');
  }
 });
-function selectTool(t){tool=t;operator.setTool(t);document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('selected',b.dataset.tool===t));ghost.visible=t==='build';message(t==='build'?'Click the grid to build. WASD moves Ethan; Space jumps.':t==='blaster'?'Click a building, zombie or monster to fire Ethan’s blaster.':t==='people'?'Click open ground or a rooftop to place a stick person.':'Type a word to arm the nuke, then aim near the monster.');if(t==='nuke'&&!charge.ready)openChallenge();}
+function selectTool(t){tool=t;operator.setTool(t);document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('selected',b.dataset.tool===t));ghost.visible=t==='build';message(t==='build'?'Click the grid to build. WASD moves Ethan; Space jumps.':t==='blaster'?'Click a building, zombie or monster to fire Ethan’s blaster.':t==='people'?'Click open ground or a rooftop to place a stick person.':(typingEnabled?'Type a word to arm the nuke, then aim near the monster.':'Nuke ready. Click a target to launch directly.'));if(t==='nuke'&&typingEnabled&&!charge.ready)openChallenge();}
 for(const b of document.querySelectorAll('[data-tool]'))b.onclick=()=>selectTool(b.dataset.tool);
 function setFloor(n){floor=Math.max(0,Math.min(11,n));$('height').value=floor;$('height-label').textContent=floor+1;hover=null;}
 $('height').oninput=e=>setFloor(Number(e.target.value));$('tower').onclick=()=>{tower();sound.play('build');};
-function reset(){closeChallenge();if($('game-over').open)$('game-over').close();for(const b of blocks.values())scene.remove(b.m);blocks.clear();for(const d of debris)scene.remove(d.m);debris.length=0;for(const e of effects){scene.remove(e.m);e.m.material.dispose();if(e.kind==='beam')e.m.geometry.dispose();}effects.length=0;broken=0;shake=0;keys.clear();jumpQueued=false;operator.reset();nuclearBlast.clear();encounter.reset();enemyWorld.clear();charge.reset();lastWave=0;lastHealth=100;setFloor(0);tower();people.reset(blocks);stats();selectTool('build');battleHUD();}
+function reset(){closeChallenge();if($('game-over').open)$('game-over').close();for(const b of blocks.values())scene.remove(b.m);blocks.clear();for(const d of debris)scene.remove(d.m);debris.length=0;for(const e of effects){scene.remove(e.m);e.m.material.dispose();if(e.kind==='beam')e.m.geometry.dispose();}effects.length=0;broken=0;shake=0;keys.clear();jumpQueued=false;operator.reset();nuclearBlast.clear();city.reset();encounter.reset();encounter.seedCity([...world.values()]);enemyWorld.clear();charge.reset();lastWave=0;lastHealth=100;setFloor(0);tower();people.reset(world);stats();selectTool('build');battleHUD();}
 $('reset').onclick=()=>{sound.stop();reset();};
-$('add-person').onclick=()=>{const error=people.addNear(operator.group.position,blocks);stats();message(error||'A stick person joined the yard.');if(!error)sound.play('build');};
-$('stand-people').onclick=()=>{people.standEveryone(blocks);stats();message('Everyone is standing again. Try another blast!');};
+$('add-person').onclick=()=>{const error=people.addNear(operator.group.position,world);stats();message(error||'A stick person joined the yard.');if(!error)sound.play('build');};
+$('stand-people').onclick=()=>{people.standEveryone(world);stats();message('Everyone is standing again. Try another blast!');};
 function followCharacter(value){follow=value;$('follow').textContent=follow?'Overview camera':'Follow Ethan';$('follow').setAttribute('aria-pressed',String(follow));if(follow){controls.target.copy(operator.group.position).add(new THREE.Vector3(0,1,0));camera.position.copy(controls.target).add(new THREE.Vector3(5,3.5,7));controls.minDistance=3;}else{controls.target.set(0,7,0);camera.position.set(30,24,35);controls.minDistance=8;}controls.update();}
 $('follow').onclick=()=>followCharacter(!follow);
 addEventListener('keydown',e=>{if(typingOpen){if(e.key==='Escape'){e.preventDefault();closeChallenge();}return;}if(encounter.health<=0||['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return;const k=e.key.toLowerCase();if(k===' '&&document.activeElement.tagName==='BUTTON')return;if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();keys.add(k);if(k===' '&&!e.repeat)jumpQueued=true;if(['1','2','3','4'].includes(k))selectTool(['build','blaster','nuke','people'][Number(k)-1]);if(k==='q')setFloor(floor-1);if(k==='e')setFloor(floor+1);if(k==='c'&&!e.repeat)followCharacter(!follow);});
@@ -171,9 +178,9 @@ for(const button of document.querySelectorAll('[data-move]')){button.onpointerdo
 function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}addEventListener('resize',resize);resize();reset();
 const clock=new THREE.Clock();
 function frame(){requestAnimationFrame(frame);const delta=Math.min(clock.getDelta(),.04),dt=typingOpen||encounter.health<=0||document.hidden?0:delta;
- operator.update(dt,keys,camera,blocks,sound,jumpQueued);jumpQueued=false;
- people.update(dt,blocks);
- encounter.advance(dt,operator.group.position,[...blocks.values()]);enemyWorld.update(dt,encounter,operator.group.position,blocks);
+ operator.update(dt,keys,camera,world,sound,jumpQueued);jumpQueued=false;
+ people.update(dt,world);city.update(dt,blocks);
+ encounter.advance(dt,operator.group.position,[...world.values()]);enemyWorld.update(dt,encounter,operator.group.position,world);
  if(encounter.wave>lastWave){lastWave=encounter.wave;sound.play('alert');}
  if(encounter.health<lastHealth)sound.play('impact');lastHealth=encounter.health;
  if(encounter.health<=0&&!$('game-over').open){keys.clear();$('game-over').showModal();}
@@ -191,4 +198,4 @@ function frame(){requestAnimationFrame(frame);const delta=Math.min(clock.getDelt
  controls.update();const offset=new THREE.Vector3();if(shake>0){shake=Math.max(0,shake-dt);if(!reducedMotion){offset.set((Math.random()-.5)*shake,(Math.random()-.5)*shake,0);camera.position.add(offset);}}renderer.render(scene,camera);camera.position.sub(offset);
 }frame();
 // Read-only diagnostic state for automated smoke checks.
-window.demolitionState=()=>({blocks:blocks.size,debris:debris.length,destroyed:broken,tool,effects:effects.length,character:operator.state(),people:people.state(camera),follow,audio:sound.state(),nuclear:nuclearBlast.state(),typing:{...charge.state(),open:typingOpen},combat:{...encounter.state(),targets:enemyWorld.state(camera)}});
+window.demolitionState=()=>({blocks:blocks.size,debris:debris.length,destroyed:broken,tool,effects:effects.length,character:operator.state(),people:people.state(camera),follow,audio:sound.state(),nuclear:nuclearBlast.state(),typing:{...charge.state(),open:typingOpen,enabled:typingEnabled},city:city.state(),combat:{...encounter.state(),targets:enemyWorld.state(camera)}});

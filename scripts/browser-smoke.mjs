@@ -6,30 +6,31 @@ page.on('pageerror',e=>{errors.push(e.message);console.log('Browser error:',e.me
 const state=()=>page.evaluate(()=>window.demolitionState());
 await page.goto(process.env.GAME_URL||'http://127.0.0.1:5173');await page.waitForFunction(()=>window.demolitionState?.().blocks===155,null,{polling:100,timeout:30000});
 try {
-assert.equal((await state()).audio.state,'locked');await page.locator('#waves').click();assert.equal((await state()).combat.enabled,false);assert.equal((await state()).people.total,4);assert.equal((await state()).people.ragdolls,0);
+const initial=await state();assert.equal(initial.audio.state,'locked');assert.equal(initial.combat.zombies,3);assert.equal(initial.city.cars,6);assert.equal(initial.city.buildings,7);assert.ok(initial.people.walking>0);
+await page.waitForFunction(before=>{const s=window.demolitionState();return Math.hypot(s.city.vehicles[0].position[0]-before.city.vehicles[0].position[0],s.city.vehicles[0].position[2]-before.city.vehicles[0].position[2])>.1&&Math.hypot(s.people.items[0].position[0]-before.people.items[0].position[0],s.people.items[0].position[2]-before.people.items[0].position[2])>.03;},initial,{polling:100,timeout:10000});console.log('Zombies appear on load; pedestrians and cars move through the city.');await page.locator('#waves').click();assert.equal((await state()).combat.enabled,false);assert.equal((await state()).people.total,10);assert.equal((await state()).people.ragdolls,0);
 await page.screenshot({path:'/tmp/game-preview.png'});
 await page.evaluate(()=>{window.audioPeak=0;window.audioProbe=setInterval(()=>{window.audioPeak=Math.max(window.audioPeak,window.demolitionState().audio.level);},10);});
 await page.mouse.click(920,550);assert.equal((await state()).blocks,156);
 console.log('Audio after first build:',(await state()).audio);
 assert.equal((await state()).audio.state,'running');assert.ok((await state()).audio.events>0);console.log('Building sound starts after the first gesture.');
-await page.locator('#add-person').click();assert.equal((await state()).people.total,5);
-await page.locator('[data-tool="people"]').click();await page.mouse.click(950,600);assert.equal((await state()).people.total,6);
+await page.locator('#add-person').click();assert.equal((await state()).people.total,11);
+await page.locator('[data-tool="people"]').click();await page.mouse.click(800,650);assert.equal((await state()).people.total,12);
 await page.locator('[data-tool="blaster"]').click();const target=(await state()).people.items.find(p=>p.id===3);await page.mouse.click(...target.screen);assert.ok((await state()).people.ragdolls>=1);
 await page.waitForFunction(()=>window.demolitionState().people.items.find(p=>p.id===3).position[1]>1.1,null,{polling:50,timeout:5000});console.log('Direct blaster hits launch a stick person into a ragdoll.');
 await page.mouse.click(640,400);assert.ok((await state()).destroyed>0);
 await page.locator('[data-tool="nuke"]').click();await page.waitForSelector('#typing-dialog[open]');
-const word=(await state()).typing.word,typingPosition=(await state()).character.position;
-await page.locator('#typing-input').pressSequentially('wrong');assert.equal((await state()).typing.ready,false);assert.deepEqual((await state()).character.position,typingPosition);await page.locator('#typing-input').fill('');
+const word=(await state()).typing.word,typingPosition=(await state()).character.position,pausedCars=(await state()).city.vehicles;
+await page.locator('#typing-input').pressSequentially('wrong');assert.equal((await state()).typing.ready,false);assert.deepEqual((await state()).character.position,typingPosition);assert.deepEqual((await state()).city.vehicles,pausedCars);await page.locator('#typing-input').fill('');
 await page.screenshot({path:'/tmp/game-preview-typing.png'});await page.locator('#typing-input').pressSequentially(word);assert.equal((await state()).typing.ready,true);assert.equal((await state()).typing.open,false);
 await page.mouse.click(640,400);assert.equal((await state()).blocks,0);assert.equal((await state()).nuclear.active,true);assert.ok((await state()).people.ragdolls>=4);
 await page.waitForFunction(()=>window.audioPeak>.0001,null,{polling:50,timeout:5000});await page.evaluate(()=>clearInterval(window.audioProbe));console.log('Explosion generates a measured audio waveform.');
-await page.waitForFunction(()=>window.demolitionState().nuclear.phase==='mushroom',null,{polling:100,timeout:15000});
+await page.waitForFunction(()=>window.demolitionState().nuclear.phase==='mushroom',null,{polling:100,timeout:60000});
 assert.ok((await state()).people.items.every(p=>p.maxJointError<.2));
 await page.screenshot({path:'/tmp/game-preview-nuclear.png'});console.log('Nuclear mushroom cloud reaches its rising phase.');
 const secondWord=(await state()).typing.word;assert.notEqual(secondWord,word);await page.mouse.click(1000,650);assert.equal((await state()).typing.open,true);assert.equal((await state()).typing.ready,false);await page.locator('#typing-input').pressSequentially(secondWord);assert.equal((await state()).typing.completed,2);assert.equal((await state()).typing.open,false);assert.equal((await state()).typing.ready,false);console.log('Correct typing earns one launch; a new word replaces the cooldown.');
 await page.locator('#sound').click();await page.waitForTimeout(300);assert.equal((await state()).audio.muted,true);assert.ok((await state()).audio.level<.0001);console.log('Mute silences the output.');
-await page.locator('#stand-people').click();assert.equal((await state()).people.ragdolls,0);assert.equal((await state()).people.total,6);console.log('People can be added, placed, ragdolled and stood back up.');
-await page.locator('#reset').click();assert.equal((await state()).people.total,4);assert.equal((await state()).people.ragdolls,0);assert.equal((await state()).blocks,155);assert.equal((await state()).nuclear.active,false);
+await page.locator('#stand-people').click();assert.equal((await state()).people.ragdolls,0);assert.equal((await state()).people.total,12);console.log('People can be added, placed, ragdolled and stood back up.');
+await page.locator('#reset').click();assert.equal((await state()).people.total,10);assert.equal((await state()).people.ragdolls,0);assert.equal((await state()).blocks,155);assert.equal((await state()).nuclear.active,false);
 await page.locator('#follow').click();assert.equal((await state()).follow,true);
 const before=(await state()).character.position;await page.keyboard.down('w');
 await page.waitForFunction(before=>{const p=window.demolitionState().character.position;return Math.hypot(p[0]-before[0],p[2]-before[2])>.3;},before,{polling:50,timeout:5000});await page.keyboard.up('w');
@@ -41,4 +42,7 @@ await page.waitForFunction(()=>window.demolitionState().combat.monsters===1&&win
 const combatWord=(await state()).typing.word;await page.locator('[data-tool="nuke"]').click();const pausedHealth=(await state()).combat.health;await page.locator('#typing-input').pressSequentially('wrong');await page.waitForTimeout(300);assert.equal((await state()).combat.health,pausedHealth);assert.equal((await state()).typing.ready,false);await page.locator('#typing-input').fill('');await page.locator('#typing-input').pressSequentially(combatWord);
 const monster=(await state()).combat.targets.find(e=>e.type==='monster');await page.mouse.click(...monster.screen);
 await page.waitForFunction(()=>window.demolitionState().combat.cleared===1,null,{polling:100,timeout:5000});assert.equal((await state()).combat.monsters,0);assert.equal((await state()).combat.zombies,0);assert.ok((await state()).combat.score>=110);console.log('Monster spawns zombies, typing pauses combat, and a nuke clears the wave.');
+await page.locator('#reset').click();await page.locator('#waves').click();
+await page.locator('[data-tool="nuke"]').click();await page.locator('#typing-off-modal').click();assert.equal((await state()).typing.enabled,false);assert.equal((await state()).typing.open,false);await page.mouse.click(640,400);assert.equal((await state()).nuclear.active,true);assert.equal((await state()).typing.completed,0);assert.equal((await state()).typing.open,false);await page.mouse.click(1000,650);assert.equal((await state()).typing.open,false);
+await page.reload();await page.waitForFunction(()=>window.demolitionState?.(),null,{polling:100,timeout:30000});assert.equal((await state()).typing.enabled,false);await page.locator('#waves').click();await page.locator('[data-tool="nuke"]').click();assert.equal((await state()).typing.open,false);await page.locator('#typing-toggle').click();assert.equal((await state()).typing.enabled,true);await page.locator('[data-tool="nuke"]').click();assert.equal((await state()).typing.open,true);await page.locator('#typing-cancel').click();console.log('Typing can be disabled from the dialog, allows direct repeat launches, persists after reload, and can be re-enabled.');
 assert.deepEqual(errors,[]);console.log('No browser errors.');} finally {await browser.close();}

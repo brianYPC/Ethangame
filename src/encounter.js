@@ -4,6 +4,7 @@ export class Encounter {
  constructor(random=Math.random){this.random=random;this.enabled=true;this.reset();}
  reset(){this.enemies=[];this.started=false;this.health=100;this.score=0;this.wave=0;this.cleared=0;this.nextWave=20;this.waveActive=false;this.serial=0;this.spawned=0;this.spawnClock=0;this.notice='Build your yard. Monsters arrive after you start playing.';}
  start(){this.started=true;}
+ seedCity(blocks=[]){if(!this.enabled)return;for(const [x,z] of [[10,5],[5,10],[-6,9]])if(this.enemies.length<19&&clearBody(x,0,z,blocks))this.addEnemy('zombie',x,z);this.notice='Zombies are already in the streets. Use the blaster or type to arm a nuke.';}
  setEnabled(enabled){this.enabled=enabled;if(!enabled){this.enemies=[];this.waveActive=false;this.notice='Monster waves paused. Practice or build freely.';}else{this.nextWave=20;this.notice='Monster waves enabled. Stay ready!';}}
  addEnemy(type,x,z){const monster=type==='monster';const e={id:++this.serial,type,x,y:0,z,size:monster?1.8:1,hp:monster?180:50,vy:monster?10:0,arriving:monster,attack:1,phase:this.random()*6.28};this.enemies.push(e);return e;}
  summon(player,blocks=[]){
